@@ -1,0 +1,99 @@
+### Variables globales
+@baseUrl = http://localhost:3000
+@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjMsImVtYWlsIjoiYWRtaW5AZXhhbXBsZS5jb20iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3NzQ2NjU5MjMsImV4cCI6MTc3NTI3MDcyM30.TUQFreBA5PFM0bqPZSJm6iuxLK1rjlCn5dNdv4VYIyE
+
+# ─────────────────────────────────────────────
+# HEALTH
+# ─────────────────────────────────────────────
+
+### Salud del servidor
+GET {{baseUrl}}/health
+
+# ─────────────────────────────────────────────
+# AUTH
+# ─────────────────────────────────────────────
+
+### Registrar usuario normal
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "123456",
+  "name": "Usuario Normal"
+}
+
+###
+
+### Registrar admin (luego cambias el rol manualmente o con el endpoint)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "admin@example.com",
+  "password": "123456",
+  "name": "Administrador"
+}
+
+###
+
+### Login - copia el token de la respuesta en @token arriba
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@example.com",
+  "password": "123456"
+}
+
+###
+
+### Login con credenciales incorrectas (espera 401)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@example.com",
+  "password": "wrong"
+}
+
+# ─────────────────────────────────────────────
+# ADMIN / RBAC
+# ─────────────────────────────────────────────
+
+### Listar usuarios (requiere ADMIN)
+GET {{baseUrl}}/admin/users
+Authorization: Bearer {{token}}
+
+###
+
+### Cambiar rol de usuario a ADMIN (requiere ADMIN)
+PATCH {{baseUrl}}/admin/users/1/role
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "role": "ADMIN"
+}
+
+###
+
+### Bajar rol de usuario a USER (requiere ADMIN)
+PATCH {{baseUrl}}/admin/users/2/role
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "role": "USER"
+}
+
+###
+
+### Sin token (espera 401)
+GET {{baseUrl}}/admin/users
+
+###
+
+### Con token de USER intentando acceso admin (espera 403)
+GET {{baseUrl}}/admin/users
+Authorization: Bearer PEGA_AQUI_UN_TOKEN_DE_USER
