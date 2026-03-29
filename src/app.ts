@@ -13,6 +13,9 @@ import authRoutes from "./modules/auth/auth.routes.js";
 import rbacRoutes from "./modules/rbac/rbac.routes.js";
 import { apiLimiter } from "./middlewares/rateLimiter.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
+// modulos nuevos
+import categoryRoutes  from "./modules/catalog/categories/category.routes.js";
+
 
 const app  = express();
 const PORT = process.env.PORT ?? 3000;
@@ -43,6 +46,7 @@ app.use("/api", apiLimiter);
 // ── Rutas ──────────────────────────────────────────────────────────────────
 app.use("/auth",  authRoutes);
 app.use("/admin", rbacRoutes);
+app.use("/categories", categoryRoutes);
 
 /* app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
