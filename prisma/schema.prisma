@@ -7,11 +7,18 @@ datasource db {
   provider = "postgresql"
 }
 
+// ── Enums ──────────────────────────────────────────────────
 enum Role {
   USER
   ADMIN
 }
 
+enum DiscountType {
+  PERCENT   // porcentaje: 10 = 10% de descuento
+  FIXED     // monto fijo: 50 = $50 de descuento
+}
+
+// ── Auth (sin cambios) ─────────────────────────────────────
 model User {
   id            Int            @id @default(autoincrement())
   email         String         @unique
@@ -19,7 +26,6 @@ model User {
   password      String
   role          Role           @default(USER)
   createdAt     DateTime       @default(now())
-  posts         Post[]
   refreshTokens RefreshToken[]
 }
 
@@ -32,11 +38,94 @@ model RefreshToken {
   createdAt DateTime @default(now())
 }
 
-model Post {
+// ── Catálogo ───────────────────────────────────────────────
+model Category {
+  id          Int        @id @default(autoincrement())
+  name        String     @unique
+  slug        String     @unique
+  description String?
+  imageUrl    String?
+
+  // Self-relation: una categoría puede tener subcategorías
+  // Ejemplo: "Ropa" → "Camisetas", "Pantalones"
+  parentId    Int?
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryTree")
+
+  products    Product[]
+  createdAt   DateTime   @default(now())
+}
+
+model Product {
+  id           Int            @id @default(autoincrement())
+  name         String
+  slug         String         @unique
+  description  String?
+  price        Decimal        @db.Decimal(10, 2)  // precio base
+  comparePrice Decimal?       @db.Decimal(10, 2)  // precio "antes de": muestra el tachado en el frontend
+  published    Boolean        @default(false)      // false = borrador, no visible en la tienda
+
+  categoryId   Int
+  category     Category       @relation(fields: [categoryId], references: [id])
+
+  variants     Variant[]
+  images       ProductImage[]
+  tags         Tag[]
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  // Índices para búsqueda y filtros eficientes
+  @@index([categoryId])
+  @@index([published])
+  @@index([price])
+}
+
+model Variant {
+  id        Int      @id @default(autoincrement())
+  sku       String   @unique              // código único: "CAMISETA-ROJA-M"
+  name      String                        // descripción: "Rojo / M"
+  stock     Int      @default(0)
+  price     Decimal? @db.Decimal(10, 2)  // si es null, hereda el precio del producto padre
+
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+model ProductImage {
   id        Int     @id @default(autoincrement())
-  title     String
-  content   String?
-  published Boolean @default(false)
-  author    User    @relation(fields: [authorId], references: [id])
-  authorId  Int
+  url       String
+  alt       String?
+  position  Int     @default(0)  // orden de aparición: 0 = imagen principal
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model Tag {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+  slug     String    @unique
+  products Product[]
+
+  // Útil para filtros: /products?tag=oferta, /products?tag=nuevo
+}
+
+model Discount {
+  id          Int          @id @default(autoincrement())
+  code        String       @unique   // el código que escribe el cliente: "VERANO20"
+  type        DiscountType
+  value       Decimal      @db.Decimal(10, 2)  // 20 = 20% o $20 según type
+  minAmount   Decimal?     @db.Decimal(10, 2)  // monto mínimo de compra para aplicar
+  maxUses     Int?                              // null = usos ilimitados
+  usedCount   Int          @default(0)
+  active      Boolean      @default(true)
+  expiresAt   DateTime?
+  createdAt   DateTime     @default(now())
 }
