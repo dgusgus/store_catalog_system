@@ -14,7 +14,9 @@ import rbacRoutes from "./modules/rbac/rbac.routes.js";
 import { apiLimiter } from "./middlewares/rateLimiter.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 // modulos nuevos
-import categoryRoutes  from "./modules/catalog/categories/category.routes.js";
+import categoryRoutes from "./modules/catalog/categories/category.routes.js";
+import productRoutes  from "./modules/catalog/products/product.routes.js";
+import discountRoutes from "./modules/catalog/discounts/discount.routes.js";
 
 
 const app  = express();
@@ -46,7 +48,10 @@ app.use("/api", apiLimiter);
 // ── Rutas ──────────────────────────────────────────────────────────────────
 app.use("/auth",  authRoutes);
 app.use("/admin", rbacRoutes);
+// Públicas
 app.use("/categories", categoryRoutes);
+app.use("/products",   productRoutes);
+app.use("/discounts",  discountRoutes);
 
 /* app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
