@@ -1,0 +1,858 @@
+# =============================================================
+#  CATALOG API — Sistema de tienda completo
+#  REST Client test suite (VS Code: humao.rest-client)
+#
+#  Flujo obligatorio antes de empezar:
+#    1. make setup   (instala, levanta DB, migra, seed)
+#    2. make dev     (arranca el servidor)
+#    3. Corre §1 HEALTH para confirmar que todo está OK
+#    4. Corre §3.1 Login admin → copia tokens en las variables
+#    5. Corre el resto en orden
+#
+#  Módulos cubiertos:
+#    § 1  Health
+#    § 2  Auth
+#    § 3  Categories  (público + admin)
+#    § 4  Products    (público + admin)
+#    § 5  Variants
+#    § 6  Images
+#    § 7  Discounts
+#    § 8  Búsqueda y filtros
+#    § 9  Casos de error (validaciones, permisos, not found)
+# =============================================================
+
+### Variables — actualiza los tokens después del login (§ 2.1)
+@baseUrl      = http://localhost:3000
+@adminToken   = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsImVtYWlsIjoiYWRtaW5AZXhhbXBsZS5jb20iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3NzQ4MjEwMjQsImV4cCI6MTc3NDgyMTkyNH0.LyFXuanKWlZL4lWkm2fhcVg-0V9B32jhqYB1aWtBSck
+@userToken    = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSIsInJvbGUiOiJVU0VSIiwiaWF0IjoxNzc0ODExNjU1LCJleHAiOjE3NzQ4MTI1NTV9.gV6AMEELYrR6KJI0BPUi0SEzCx1gd1YZrdq0yizjt5A
+
+### IDs — se llenan mientras avanzas en las pruebas
+@categoryId   = 5
+@subCategoryId = 6
+@productId    = 5
+@variantId    = 10
+@imageId      = 1
+@discountId   = 1
+
+
+# =============================================================
+#  § 1  HEALTH
+#  Esperado: 200 { status: "ok", timestamp: "..." }
+#  Si falla aquí: el servidor no arrancó o faltan env vars (Fase 1)
+# =============================================================
+
+### 1.1 Servidor corriendo y env validado
+GET {{baseUrl}}/health
+
+
+# =============================================================
+#  § 2  AUTH
+#  Corre 2.1 y 2.2 primero — necesitas los tokens para todo lo demás
+# =============================================================
+
+### 2.1 Login admin — !! copia accessToken en @adminToken !!
+# Esperado: 200 { user: { role: "ADMIN" }, accessToken, refreshToken }
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@example.com",
+  "password": "admin123"
+}
+
+###
+
+### 2.2 Login usuario normal — !! copia accessToken en @userToken !!
+# Esperado: 200 { user: { role: "USER" }, accessToken, refreshToken }
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "user123"
+}
+
+
+# =============================================================
+#  § 3  CATEGORIES — Categorías
+# =============================================================
+
+# ── Público ──────────────────────────────────────────────────
+
+### 3.1 Listar categorías raíz con sus hijos
+# Esperado: 200 [ { id, name, slug, children: [...] }, ... ]
+# Con seed: Electrónica (con Teléfonos) y Ropa (con Camisetas)
+GET {{baseUrl}}/categories
+
+###
+
+### 3.2 Obtener categoría por slug
+# Esperado: 200 { id, name, slug, children, _count: { products: N } }
+GET {{baseUrl}}/categories/electronica
+
+###
+
+### 3.3 Categoría inexistente
+# Esperado: 404 { error: "Categoría no encontrada", code: "CATEGORY_NOT_FOUND" }
+GET {{baseUrl}}/categories/no-existe
+
+# ── Admin ─────────────────────────────────────────────────────
+
+### 3.4 Crear categoría raíz — OK
+# !! Anota el id devuelto en @categoryId si quieres usarlo más abajo !!
+# Esperado: 201 { id, name, slug, ... }
+POST {{baseUrl}}/categories
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Hogar y jardín",
+  "slug": "hogar-jardin",
+  "description": "Todo para tu casa y jardín"
+}
+
+###
+
+### 3.5 Crear subcategoría con parentId
+# Usa el id de la categoría creada en 3.4 como parentId
+# Esperado: 201 { id, name, slug, parentId: N, ... }
+POST {{baseUrl}}/categories
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Muebles",
+  "slug": "muebles",
+  "parentId": {{categoryId}}
+}
+
+###
+
+### 3.6 Crear categoría con slug duplicado — ConflictError
+# Esperado: 409 { error: "Ya existe una categoría con ese slug", code: "SLUG_TAKEN" }
+POST {{baseUrl}}/categories
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Electrónica duplicada",
+  "slug": "electronica"
+}
+
+###
+
+### 3.7 Crear con slug inválido — Zod
+# Esperado: 400 { errors: { slug: ["Slug inválido: solo minúsculas..."] } }
+POST {{baseUrl}}/categories
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Test",
+  "slug": "Slug Con Mayusculas"
+}
+
+###
+
+### 3.8 Actualizar categoría
+# Esperado: 200 { id, name: "Hogar, jardín y decoración", slug, ... }
+PATCH {{baseUrl}}/categories/{{categoryId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Hogar, jardín y decoración",
+  "description": "Descripción actualizada"
+}
+
+###
+
+### 3.9 Actualizar sin token — verifyToken
+# Esperado: 401 { error: "Token no proporcionado" }
+PATCH {{baseUrl}}/categories/{{categoryId}}
+Content-Type: application/json
+
+{
+  "name": "Intento sin token"
+}
+
+###
+
+### 3.10 Actualizar con token USER — requireRole
+# Esperado: 403 { error: "No tienes permisos para esta acción" }
+PATCH {{baseUrl}}/categories/{{categoryId}}
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "name": "Intento con user"
+}
+
+###
+
+### 3.11 Eliminar categoría sin productos — OK
+# Usa el id de la subcategoría creada en 3.5
+# Esperado: 204 No Content
+DELETE {{baseUrl}}/categories/{{subCategoryId}}
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 3.12 Eliminar categoría con productos — ConflictError
+# Electrónica tiene productos del seed → no se puede borrar
+# Esperado: 409 { error: "No puedes borrar una categoría con N producto(s)", code: "CATEGORY_HAS_PRODUCTS" }
+DELETE {{baseUrl}}/categories/1
+Authorization: Bearer {{adminToken}}
+
+
+# =============================================================
+#  § 4  PRODUCTS — Productos
+# =============================================================
+
+# ── Público ───────────────────────────────────────────────────
+
+### 4.1 Listar productos publicados (paginado)
+# Esperado: 200 { items: [...], pagination: { total, page, limit, totalPages, hasNext, hasPrev } }
+# Con seed: Smartphone X100 y Camiseta básica (Auriculares es borrador, no aparece)
+GET {{baseUrl}}/products
+
+###
+
+### 4.2 Obtener producto por slug
+# Esperado: 200 { id, name, price, comparePrice, category, variants, images, tags }
+GET {{baseUrl}}/products/smartphone-x100
+
+###
+
+### 4.3 Producto borrador — no visible al público
+# Esperado: 404 { error: "Producto no encontrado", code: "PRODUCT_NOT_FOUND" }
+GET {{baseUrl}}/products/auriculares-pro
+
+###
+
+### 4.4 Producto inexistente
+# Esperado: 404 { error: "Producto no encontrado", code: "PRODUCT_NOT_FOUND" }
+GET {{baseUrl}}/products/slug-que-no-existe
+
+# ── Admin ─────────────────────────────────────────────────────
+
+### 4.5 Listar todos los productos — admin ve borradores también
+# Esperado: 200 { items: [3 productos incluyendo Auriculares borrador], pagination: {...} }
+GET {{baseUrl}}/products/admin
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 4.6 Crear producto completo con variantes e imágenes
+# !! Anota el id devuelto en @productId !!
+# Esperado: 201 { id, name, slug, price, variants: [...], images: [...], tags: [...] }
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Laptop UltraBook Pro",
+  "slug": "laptop-ultrabook-pro",
+  "description": "Laptop de alto rendimiento con procesador i7 y 16GB RAM",
+  "price": 1299.99,
+  "comparePrice": 1599.99,
+  "published": true,
+  "categoryId": 1,
+  "tags": ["nuevo", "oferta"],
+  "variants": [
+    { "sku": "LAPTOP-i7-512-GRIS",  "name": "i7 / 512GB / Gris espacial", "stock": 5 },
+    { "sku": "LAPTOP-i7-1TB-GRIS",  "name": "i7 / 1TB / Gris espacial",   "stock": 3, "price": 1499.99 }
+  ],
+  "images": [
+    { "url": "https://placehold.co/800x800?text=Laptop+Front", "alt": "Laptop UltraBook Pro", "position": 0 },
+    { "url": "https://placehold.co/800x800?text=Laptop+Side",  "alt": "Vista lateral",        "position": 1 }
+  ]
+}
+
+###
+
+### 4.7 Crear producto mínimo (solo campos requeridos, sin variantes)
+# Esperado: 201 { id, name, slug, price, published: false, variants: [], images: [] }
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Producto mínimo de prueba",
+  "slug": "producto-minimo-prueba",
+  "price": 9.99,
+  "categoryId": 2
+}
+
+###
+
+### 4.8 Crear producto con slug duplicado — ConflictError
+# Esperado: 409 { error: "Ya existe un producto con ese slug", code: "SLUG_TAKEN" }
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Otro smartphone",
+  "slug": "smartphone-x100",
+  "price": 299.99,
+  "categoryId": 1
+}
+
+###
+
+### 4.9 Crear producto con categoryId inexistente — NotFoundError
+# Esperado: 404 { error: "Categoría no encontrada", code: "CATEGORY_NOT_FOUND" }
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Producto huérfano",
+  "slug": "producto-huerfano",
+  "price": 9.99,
+  "categoryId": 99999
+}
+
+###
+
+### 4.10 Crear con comparePrice menor que price — ValidationError
+# Fase 2: 400 { error: "El precio de comparación debe ser mayor...", code: "INVALID_COMPARE_PRICE" }
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Precio inválido",
+  "slug": "precio-invalido",
+  "price": 100,
+  "comparePrice": 50,
+  "categoryId": 1
+}
+
+###
+
+### 4.11 Actualizar producto — cambiar precio y publicarlo
+# Esperado: 200 { id, price: 1199.99, published: true, ... }
+PATCH {{baseUrl}}/products/{{productId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "price": 1199.99,
+  "published": true
+}
+
+###
+
+### 4.12 Actualizar tags del producto (reemplaza todos los anteriores)
+# Esperado: 200 { tags: [{ name: "destacado" }] }
+PATCH {{baseUrl}}/products/{{productId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "tags": ["destacado"]
+}
+
+###
+
+### 4.13 Eliminar producto — OK
+# Cascade: borra variantes e imágenes asociadas automáticamente
+# Usa el id del producto mínimo creado en 4.7 para no perder datos útiles
+# Esperado: 204 No Content
+DELETE {{baseUrl}}/products/{{productId}}
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 4.14 Eliminar producto inexistente — NotFoundError
+# Esperado: 404 { error: "Producto no encontrado", code: "PRODUCT_NOT_FOUND" }
+DELETE {{baseUrl}}/products/99999
+Authorization: Bearer {{adminToken}}
+
+
+# =============================================================
+#  § 5  VARIANTS — Variantes de producto
+#  Usa el producto del seed: id=1 (Smartphone X100)
+# =============================================================
+
+### 5.1 Agregar variante a producto existente
+# !! Anota el id devuelto en @variantId !!
+# Esperado: 201 { id, sku, name, stock, price, productId }
+POST {{baseUrl}}/products/1/variants
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "sku": "X100-512GB-NEGRO",
+  "name": "512GB / Negro",
+  "stock": 3,
+  "price": 749.99
+}
+
+###
+
+### 5.2 Agregar variante con SKU duplicado — ConflictError
+# Esperado: 409 { error: "El SKU ya está en uso", code: "SKU_TAKEN" }
+POST {{baseUrl}}/products/1/variants
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "sku": "X100-128GB-NEGRO",
+  "name": "Duplicado",
+  "stock": 5
+}
+
+###
+
+### 5.3 Agregar variante a producto inexistente — NotFoundError
+# Esperado: 404 { error: "Producto no encontrado", code: "PRODUCT_NOT_FOUND" }
+POST {{baseUrl}}/products/99999/variants
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "sku": "VAR-FANTASMA",
+  "name": "Variante fantasma",
+  "stock": 1
+}
+
+###
+
+### 5.4 Actualizar stock y precio de variante
+# Esperado: 200 { id, sku, stock: 10, price: 699.99, ... }
+PATCH {{baseUrl}}/products/1/variants/{{variantId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "stock": 10,
+  "price": 699.99
+}
+
+###
+
+### 5.5 Actualizar solo el stock (partial update)
+# Esperado: 200 { id, stock: 0, ... } — producto sin stock
+PATCH {{baseUrl}}/products/1/variants/{{variantId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "stock": 0
+}
+
+###
+
+### 5.6 Eliminar variante — OK
+# Esperado: 204 No Content
+DELETE {{baseUrl}}/products/1/variants/{{variantId}}
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 5.7 Eliminar variante inexistente — NotFoundError
+# Esperado: 404 { error: "Variante no encontrada", code: "VARIANT_NOT_FOUND" }
+DELETE {{baseUrl}}/products/1/variants/99999
+Authorization: Bearer {{adminToken}}
+
+
+# =============================================================
+#  § 6  IMAGES — Imágenes de producto
+#  Usa el producto del seed: id=1 (Smartphone X100)
+# =============================================================
+
+### 6.1 Agregar imagen a producto
+# !! Anota el id devuelto en @imageId !!
+# Esperado: 201 { id, url, alt, position, productId }
+POST {{baseUrl}}/products/1/images
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "url": "https://placehold.co/800x800?text=X100+Nueva",
+  "alt": "Vista adicional del Smartphone X100",
+  "position": 2
+}
+
+###
+
+### 6.2 Agregar imagen con URL inválida — Zod
+# Esperado: 400 { errors: { url: ["La URL de la imagen no es válida"] } }
+POST {{baseUrl}}/products/1/images
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "url": "no-es-una-url",
+  "position": 0
+}
+
+###
+
+### 6.3 Reordenar imágenes (drag & drop desde la PWA)
+# Envía el array de ids en el nuevo orden deseado
+# Esperado: 200 { message: "Imágenes reordenadas" }
+PATCH {{baseUrl}}/products/1/images/reorder
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "imageIds": [2, 1, {{imageId}}]
+}
+
+###
+
+### 6.4 Eliminar imagen — OK
+# Esperado: 204 No Content
+DELETE {{baseUrl}}/products/1/images/{{imageId}}
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 6.5 Eliminar imagen inexistente — NotFoundError
+# Esperado: 404 { error: "Imagen no encontrada", code: "IMAGE_NOT_FOUND" }
+DELETE {{baseUrl}}/products/1/images/99999
+Authorization: Bearer {{adminToken}}
+
+
+# =============================================================
+#  § 7  DISCOUNTS — Códigos de descuento
+# =============================================================
+
+# ── Público — validar código desde el carrito ─────────────────
+
+### 7.1 Validar código porcentual — OK
+# Esperado: 200 { valid: true, code: "VERANO20", type: "PERCENT",
+#                 discountAmount: 119.99, finalAmount: 479.97 }
+# (sobre un carrito de $599.97)
+POST {{baseUrl}}/discounts/validate
+Content-Type: application/json
+
+{
+  "code": "VERANO20",
+  "cartAmount": 599.97
+}
+
+###
+
+### 7.2 Validar código fijo — OK
+# Esperado: 200 { valid: true, code: "DESCUENTO10", type: "FIXED",
+#                 discountAmount: 10, finalAmount: 589.97 }
+POST {{baseUrl}}/discounts/validate
+Content-Type: application/json
+
+{
+  "code": "DESCUENTO10",
+  "cartAmount": 599.97
+}
+
+###
+
+### 7.3 Validar código con monto inferior al mínimo
+# VERANO20 requiere minAmount: $50 — aquí enviamos $30
+# Esperado: 400 { error: "Monto mínimo para este código: $50", code: "BELOW_MIN_AMOUNT" }
+POST {{baseUrl}}/discounts/validate
+Content-Type: application/json
+
+{
+  "code": "VERANO20",
+  "cartAmount": 30
+}
+
+###
+
+### 7.4 Validar código inexistente
+# Esperado: 400 { error: "Código de descuento inválido o expirado", code: "INVALID_DISCOUNT" }
+# Mismo mensaje que código expirado — no revela si existe
+POST {{baseUrl}}/discounts/validate
+Content-Type: application/json
+
+{
+  "code": "CODIGOFANTASMA",
+  "cartAmount": 100
+}
+
+###
+
+### 7.5 Validar sin cartAmount — Zod
+# Esperado: 400 { errors: { cartAmount: [...] } }
+POST {{baseUrl}}/discounts/validate
+Content-Type: application/json
+
+{
+  "code": "VERANO20"
+}
+
+# ── Admin ──────────────────────────────────────────────────────
+
+### 7.6 Listar todos los descuentos
+# Esperado: 200 [ { id, code, type, value, active, usedCount, ... }, ... ]
+# Con seed: VERANO20 y DESCUENTO10
+GET {{baseUrl}}/discounts
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 7.7 Crear descuento porcentual con límite de usos
+# !! Anota el id devuelto en @discountId !!
+# Esperado: 201 { id, code: "BIENVENIDA15", type: "PERCENT", value: 15 }
+POST {{baseUrl}}/discounts
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "code": "BIENVENIDA15",
+  "type": "PERCENT",
+  "value": 15,
+  "minAmount": 25,
+  "maxUses": 50,
+  "active": true
+}
+
+###
+
+### 7.8 Crear descuento fijo con expiración
+# Esperado: 201 { id, code: "NAVIDAD5", type: "FIXED", value: 5 }
+POST {{baseUrl}}/discounts
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "code": "NAVIDAD5",
+  "type": "FIXED",
+  "value": 5,
+  "expiresAt": "2026-12-31T23:59:59Z"
+}
+
+###
+
+### 7.9 Crear descuento con código duplicado — ConflictError
+# Esperado: 409 { error: "El código ya existe", code: "DISCOUNT_CODE_TAKEN" }
+POST {{baseUrl}}/discounts
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "code": "VERANO20",
+  "type": "PERCENT",
+  "value": 10
+}
+
+###
+
+### 7.10 Crear descuento porcentual superior a 100% — ValidationError
+# Esperado: 400 { error: "Un descuento porcentual no puede superar el 100%", code: "INVALID_PERCENT" }
+POST {{baseUrl}}/discounts
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "code": "GRATIS",
+  "type": "PERCENT",
+  "value": 150
+}
+
+###
+
+### 7.11 Toggle: desactivar descuento activo
+# Esperado: 200 { id, code: "BIENVENIDA15", active: false }
+PATCH {{baseUrl}}/discounts/{{discountId}}/toggle
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 7.12 Toggle: reactivar descuento — dos toggles = vuelve al estado original
+# Esperado: 200 { id, code: "BIENVENIDA15", active: true }
+PATCH {{baseUrl}}/discounts/{{discountId}}/toggle
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 7.13 Validar código desactivado — después de toggle 7.11
+# Primero corre 7.11 para desactivarlo, luego valida
+# Esperado: 400 { error: "Código de descuento inválido o expirado", code: "INVALID_DISCOUNT" }
+POST {{baseUrl}}/discounts/validate
+Content-Type: application/json
+
+{
+  "code": "BIENVENIDA15",
+  "cartAmount": 100
+}
+
+###
+
+### 7.14 Eliminar descuento — OK
+# Esperado: 204 No Content
+DELETE {{baseUrl}}/discounts/{{discountId}}
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 7.15 Eliminar descuento sin token
+# Esperado: 401 { error: "Token no proporcionado" }
+DELETE {{baseUrl}}/discounts/{{discountId}}
+
+
+# =============================================================
+#  § 8  BÚSQUEDA Y FILTROS
+#  Todos públicos — los usa la PWA para la tienda
+# =============================================================
+
+### 8.1 Búsqueda por texto en nombre y descripción
+# Esperado: 200 { items: [Smartphone X100], pagination: {...} }
+GET {{baseUrl}}/products?q=smartphone
+
+###
+
+### 8.2 Filtrar por categoría (slug)
+# Esperado: 200 { items: [Smartphone X100, ...], pagination: {...} }
+GET {{baseUrl}}/products?category=telefonos
+
+###
+
+### 8.3 Filtrar por tag
+# Esperado: 200 { items: productos con tag "oferta" }
+GET {{baseUrl}}/products?tag=oferta
+
+###
+
+### 8.4 Filtrar por rango de precio
+# Esperado: 200 { items: productos entre $10 y $100 — Camiseta básica }
+GET {{baseUrl}}/products?minPrice=10&maxPrice=100
+
+###
+
+### 8.5 Filtrar solo productos con stock
+# Esperado: 200 { items: productos con al menos una variante con stock > 0 }
+GET {{baseUrl}}/products?inStock=true
+
+###
+
+### 8.6 Ordenar por precio ascendente
+# Esperado: 200 { items: [Camiseta $19.99, Smartphone $599.99, ...] }
+GET {{baseUrl}}/products?orderBy=price_asc
+
+###
+
+### 8.7 Ordenar por precio descendente
+# Esperado: 200 { items: [Laptop $1299.99, Smartphone $599.99, Camiseta $19.99] }
+GET {{baseUrl}}/products?orderBy=price_desc
+
+###
+
+### 8.8 Paginación — página 2 con 1 producto por página
+# Esperado: 200 { items: [1 producto], pagination: { page: 2, hasNext: true/false, hasPrev: true } }
+GET {{baseUrl}}/products?page=2&limit=1
+
+###
+
+### 8.9 Filtros combinados — búsqueda + categoría + precio + orden
+# Caso real: usuario busca "laptop" en electrónica entre $500 y $2000, precio asc
+# Esperado: 200 { items: [Laptop UltraBook Pro si fue creada en § 4.6] }
+GET {{baseUrl}}/products?q=laptop&category=electronica&minPrice=500&maxPrice=2000&orderBy=price_asc
+
+###
+
+### 8.10 Admin filtra borradores por categoría
+# Esperado: 200 { items: [Auriculares Pro — published: false] }
+GET {{baseUrl}}/products/admin?published=false&category=electronica
+Authorization: Bearer {{adminToken}}
+
+###
+
+### 8.11 Página fuera de rango — devuelve items vacío, no error
+# Esperado: 200 { items: [], pagination: { page: 999, total: N, hasNext: false, hasPrev: true } }
+GET {{baseUrl}}/products?page=999
+
+###
+
+### 8.12 limit fuera de rango — Zod lo rechaza
+# Esperado: 400 (limit máximo es 50 según el schema)
+GET {{baseUrl}}/products?limit=999
+
+
+# =============================================================
+#  § 9  CASOS DE ERROR GENERALES
+#  Valida que el error handler tipado (Fase 2) responde correctamente
+# =============================================================
+
+### 9.1 Ruta inexistente — Express devuelve 404
+GET {{baseUrl}}/ruta-que-no-existe
+
+###
+
+### 9.2 Body con Content-Type incorrecto
+# Esperado: 400 — Express no puede parsear el body
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: text/plain
+
+esto no es json
+
+###
+
+### 9.3 Token expirado o malformado — verifyToken
+# Esperado: 401 { error: "Token inválido o expirado" }
+GET {{baseUrl}}/products/admin
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.token.malformado
+
+###
+
+### 9.4 Acceso admin con token USER — requireRole
+# Esperado: 403 { error: "No tienes permisos para esta acción" }
+POST {{baseUrl}}/products
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "name": "Intento desde USER",
+  "slug": "intento-user",
+  "price": 1,
+  "categoryId": 1
+}
+
+###
+
+### 9.5 Crear producto con price negativo — Zod
+# Esperado: 400 { errors: { price: ["El precio debe ser mayor a 0"] } }
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Precio negativo",
+  "slug": "precio-negativo",
+  "price": -10,
+  "categoryId": 1
+}
+
+###
+
+### 9.6 Variant con stock negativo — Zod
+# Esperado: 400 { errors: { stock: [...] } }
+POST {{baseUrl}}/products/1/variants
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "sku": "VAR-STOCK-NEG",
+  "name": "Stock negativo",
+  "stock": -5
+}
+
+###
+
+### 9.7 Discount con value 0 — Zod (debe ser positive)
+# Esperado: 400 { errors: { value: [...] } }
+POST {{baseUrl}}/discounts
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "code": "CERO",
+  "type": "FIXED",
+  "value": 0
+}
