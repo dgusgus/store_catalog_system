@@ -7,6 +7,8 @@ import type {
   CreateImageInput,   ProductFilters,
 } from "./product.schema.js";
 
+import { deleteFromCloudinary } from "../../../services/cloudinary.service.js";
+
 // ── Selección reutilizable ─────────────────────────────────
 // Lo que devuelve la tienda pública — sin campos internos
 const publicProductSelect = {
@@ -19,7 +21,7 @@ const publicProductSelect = {
     orderBy: { id: "asc" as const },
   },
   images: {
-    select: { id: true, url: true, alt: true, position: true },
+    select: { id: true, url: true, publicId: true, alt: true, position: true },
     orderBy: { position: "asc" as const },
   },
   tags: { select: { id: true, name: true, slug: true } },
@@ -274,6 +276,11 @@ export async function addImage(productId: number, input: CreateImageInput) {
 export async function deleteImage(imageId: number) {
   const image = await prisma.productImage.findUnique({ where: { id: imageId } });
   if (!image) throw new NotFoundError("Imagen no encontrada", "IMAGE_NOT_FOUND");
+
+  if (image.publicId) {
+    await deleteFromCloudinary(image.publicId);
+  }
+
   await prisma.productImage.delete({ where: { id: imageId } });
 }
 

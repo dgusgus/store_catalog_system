@@ -15,9 +15,13 @@ const envSchema = z.object({
 
   // CORS
   CORS_ORIGIN: z.string().default("*"),
+
+  // Cloudinary — requeridas para borrar imágenes desde el backend
+  CLOUDINARY_CLOUD_NAME: z.string().min(1, "CLOUDINARY_CLOUD_NAME es requerido"),
+  CLOUDINARY_API_KEY:    z.string().min(1, "CLOUDINARY_API_KEY es requerido"),
+  CLOUDINARY_API_SECRET: z.string().min(1, "CLOUDINARY_API_SECRET es requerido"),
 });
 
-// parse() lanza un error detallado si falta algo — la app NO arranca
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
@@ -26,7 +30,7 @@ if (!parsed.success) {
   for (const [key, messages] of Object.entries(errors)) {
     console.error(`   ${key}: ${messages?.join(", ")}`);
   }
-  process.exit(1); // falla explícita, no silenciosa
+  process.exit(1);
 }
 
 export const env = parsed.data;

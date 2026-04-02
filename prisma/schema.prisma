@@ -99,6 +99,7 @@ model Variant {
 model ProductImage {
   id        Int     @id @default(autoincrement())
   url       String
+  publicId  String?
   alt       String?
   position  Int     @default(0)  // orden de aparición: 0 = imagen principal
 

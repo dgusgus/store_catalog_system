@@ -20,6 +20,7 @@ export const createImageSchema = z.object({
   url:      z.url("La URL de la imagen no es válida"),
   alt:      z.string().max(200).optional(),
   position: z.number().int().min(0).default(0),
+  publicId: z.string().min(1).optional(), // ← agregar esta línea
 }).openapi("CreateImageInput");
 
 // ── Producto ───────────────────────────────────────────────
