@@ -20,7 +20,17 @@ function parseFilters(req: Request) {
 
 // ── Públicos (tienda) ──────────────────────────────────────
 
-// GET /products?q=camisa&category=ropa&minPrice=100&page=2
+
+// ── Admin — productos ──────────────────────────────────────
+
+// GET /products/admin?published=false — ve borradores también
+router.get("/admin", verifyToken, requireRole("ADMIN"),
+async (req, res, next) => {
+  try { res.json(await service.getAdminProducts(parseFilters(req))); }
+  catch (e) { next(e); }
+}
+);
+// ② Público — listado general
 router.get("/", async (req, res, next) => {
   try { res.json(await service.getProducts(parseFilters(req))); }
   catch (e) { next(e); }
@@ -31,16 +41,6 @@ router.get("/:slug", async (req, res, next) => {
   try { res.json(await service.getProductBySlug(req.params.slug)); }
   catch (e) { next(e); }
 });
-
-// ── Admin — productos ──────────────────────────────────────
-
-// GET /products/admin?published=false — ve borradores también
-router.get("/admin", verifyToken, requireRole("ADMIN"),
-  async (req, res, next) => {
-    try { res.json(await service.getAdminProducts(parseFilters(req))); }
-    catch (e) { next(e); }
-  }
-);
 
 // POST /products
 router.post("/", verifyToken, requireRole("ADMIN"), validate(createProductSchema),
