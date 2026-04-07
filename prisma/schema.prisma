@@ -130,3 +130,11 @@ model Discount {
   expiresAt   DateTime?
   createdAt   DateTime     @default(now())
 }
+
+model StoreSettings {
+  id              Int      @id @default(1)  
+  whatsappNumber  String?  
+  storeName       String?
+  storeDescription String?
+  updatedAt       DateTime @updatedAt
+}

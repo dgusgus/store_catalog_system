@@ -18,6 +18,7 @@ import categoryRoutes from "./modules/catalog/categories/category.routes.js";
 import productRoutes  from "./modules/catalog/products/product.routes.js";
 import discountRoutes from "./modules/catalog/discounts/discount.routes.js";
 
+import settingsRoutes from './modules/settings/settings.routes.js'
 
 const app  = express();
 const PORT = process.env.PORT ?? 3000;
@@ -52,6 +53,7 @@ app.use("/admin", rbacRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/products",   productRoutes);
 app.use("/discounts",  discountRoutes);
+app.use('/settings', settingsRoutes)
 
 /* app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

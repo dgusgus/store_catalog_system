@@ -163,12 +163,23 @@ async function main() {
     },
   });
 
+  await prisma.storeSettings.upsert({
+    where: { id: 1 },
+    update: {},
+    create: {
+      id: 1,
+      whatsappNumber: null,   // el admin lo configura desde el panel
+      storeName: 'Mi Tienda',
+    },
+  })
+
   console.log("✅  Seed completo:");
   console.log("   Categorías: Electrónica, Ropa + subcategorías");
   console.log("   Productos:  Smartphone X100, Camiseta básica, Auriculares (borrador)");
   console.log("   Descuentos: VERANO20 (20%), DESCUENTO10 ($10 fijo)");
   console.log("   Usuarios:   admin@example.com / admin123");
   console.log("              user@example.com  / user123");
+  console.log('   Configuración: StoreSettings creado (whatsappNumber vacío)')
 }
 
 main()
