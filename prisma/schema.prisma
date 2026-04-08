@@ -18,7 +18,14 @@ enum DiscountType {
   FIXED     // monto fijo: 50 = $50 de descuento
 }
 
-// ── Auth (sin cambios) ─────────────────────────────────────
+enum OrderStatus {
+  PENDING    // recién creado, esperando al admin
+  CONFIRMED  // admin aceptó
+  REJECTED   // admin rechazó, stock devuelto
+  DELIVERED  // entregado
+}
+
+// ── Auth ───────────────────────────────────────────────────
 model User {
   id            Int            @id @default(autoincrement())
   email         String         @unique
@@ -27,6 +34,7 @@ model User {
   role          Role           @default(USER)
   createdAt     DateTime       @default(now())
   refreshTokens RefreshToken[]
+  orders        Order[]
 }
 
 model RefreshToken {
@@ -46,14 +54,12 @@ model Category {
   description String?
   imageUrl    String?
 
-  // Self-relation: una categoría puede tener subcategorías
-  // Ejemplo: "Ropa" → "Camisetas", "Pantalones"
-  parentId    Int?
-  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children    Category[] @relation("CategoryTree")
+  parentId  Int?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
 
-  products    Product[]
-  createdAt   DateTime   @default(now())
+  products  Product[]
+  createdAt DateTime   @default(now())
 }
 
 model Product {
@@ -61,47 +67,47 @@ model Product {
   name         String
   slug         String         @unique
   description  String?
-  price        Decimal        @db.Decimal(10, 2)  // precio base
-  comparePrice Decimal?       @db.Decimal(10, 2)  // precio "antes de": muestra el tachado en el frontend
-  published    Boolean        @default(false)      // false = borrador, no visible en la tienda
+  price        Decimal        @db.Decimal(10, 2)
+  comparePrice Decimal?       @db.Decimal(10, 2)
+  published    Boolean        @default(false)
 
-  categoryId   Int
-  category     Category       @relation(fields: [categoryId], references: [id])
+  categoryId Int
+  category   Category       @relation(fields: [categoryId], references: [id])
 
-  variants     Variant[]
-  images       ProductImage[]
-  tags         Tag[]
+  variants  Variant[]
+  images    ProductImage[]
+  tags      Tag[]
 
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  // Índices para búsqueda y filtros eficientes
   @@index([categoryId])
   @@index([published])
   @@index([price])
 }
 
 model Variant {
-  id        Int      @id @default(autoincrement())
-  sku       String   @unique              // código único: "CAMISETA-ROJA-M"
-  name      String                        // descripción: "Rojo / M"
-  stock     Int      @default(0)
-  price     Decimal? @db.Decimal(10, 2)  // si es null, hereda el precio del producto padre
+  id    Int     @id @default(autoincrement())
+  sku   String  @unique
+  name  String
+  stock Int     @default(0)
+  price Decimal? @db.Decimal(10, 2)
 
   productId Int
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  createdAt  DateTime    @default(now())
+  orderItems OrderItem[]
 
   @@index([productId])
 }
 
 model ProductImage {
-  id        Int     @id @default(autoincrement())
-  url       String
-  publicId  String?
-  alt       String?
-  position  Int     @default(0)  // orden de aparición: 0 = imagen principal
+  id       Int     @id @default(autoincrement())
+  url      String
+  publicId String?
+  alt      String?
+  position Int     @default(0)
 
   productId Int
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -114,27 +120,79 @@ model Tag {
   name     String    @unique
   slug     String    @unique
   products Product[]
-
-  // Útil para filtros: /products?tag=oferta, /products?tag=nuevo
 }
 
 model Discount {
-  id          Int          @id @default(autoincrement())
-  code        String       @unique   // el código que escribe el cliente: "VERANO20"
-  type        DiscountType
-  value       Decimal      @db.Decimal(10, 2)  // 20 = 20% o $20 según type
-  minAmount   Decimal?     @db.Decimal(10, 2)  // monto mínimo de compra para aplicar
-  maxUses     Int?                              // null = usos ilimitados
-  usedCount   Int          @default(0)
-  active      Boolean      @default(true)
-  expiresAt   DateTime?
-  createdAt   DateTime     @default(now())
+  id        Int          @id @default(autoincrement())
+  code      String       @unique
+  type      DiscountType
+  value     Decimal      @db.Decimal(10, 2)
+  minAmount Decimal?     @db.Decimal(10, 2)
+  maxUses   Int?
+  usedCount Int          @default(0)
+  active    Boolean      @default(true)
+  expiresAt DateTime?
+  createdAt DateTime     @default(now())
 }
 
+// ── Configuración de la tienda ─────────────────────────────
 model StoreSettings {
-  id              Int      @id @default(1)  
-  whatsappNumber  String?  
-  storeName       String?
+  id               Int      @id @default(1)
+  whatsappNumber   String?
+  storeName        String?
   storeDescription String?
-  updatedAt       DateTime @updatedAt
+  updatedAt        DateTime @updatedAt
+}
+
+// ── Órdenes ────────────────────────────────────────────────
+model Order {
+  id          Int         @id @default(autoincrement())
+  orderNumber String      @unique
+
+  status OrderStatus @default(PENDING)
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  // Snapshot de contacto al momento del pedido
+  customerName  String
+  customerPhone String
+
+  // Totales
+  subtotal       Decimal @db.Decimal(10, 2)
+  discountCode   String?
+  discountAmount Decimal @default(0) @db.Decimal(10, 2)
+  total          Decimal @db.Decimal(10, 2)
+
+  // Nota del admin al aceptar o rechazar
+  adminNote String?
+
+  items OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id      Int   @id @default(autoincrement())
+  orderId Int
+  order   Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Referencias vivas
+  productId Int
+  variantId Int?
+  variant   Variant? @relation(fields: [variantId], references: [id])
+
+  // Snapshot — precio y nombre al momento de comprar
+  productName String
+  variantName String?
+  unitPrice   Decimal @db.Decimal(10, 2)
+  quantity    Int
+  subtotal    Decimal @db.Decimal(10, 2)
+
+  @@index([orderId])
 }

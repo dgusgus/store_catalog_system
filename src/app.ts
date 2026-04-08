@@ -17,6 +17,7 @@ import { errorHandler } from "./middlewares/errorHandler.js";
 import categoryRoutes from "./modules/catalog/categories/category.routes.js";
 import productRoutes  from "./modules/catalog/products/product.routes.js";
 import discountRoutes from "./modules/catalog/discounts/discount.routes.js";
+import orderRoutes    from "./modules/orders/order.routes.js";
 
 import settingsRoutes from './modules/settings/settings.routes.js'
 
@@ -51,9 +52,10 @@ app.use("/auth",  authRoutes);
 app.use("/admin", rbacRoutes);
 // Públicas
 app.use("/categories", categoryRoutes);
-app.use("/products",   productRoutes);
-app.use("/discounts",  discountRoutes);
+app.use("/products", productRoutes);
+app.use("/discounts", discountRoutes);
 app.use('/settings', settingsRoutes)
+app.use("/orders", orderRoutes);  // requiere autenticación, se maneja dentro de order.routes.ts
 
 /* app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
