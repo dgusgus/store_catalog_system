@@ -5,8 +5,7 @@ import {
   NotFoundError,
   ConflictError,
   ValidationError,
-} from '../../../src/config/errors.js'
-//import { discountsApi } from '../catalog/discounts/discount.service.js'
+} from '../../config/errors.js'
 import type {
   CreateOrderInput,
   UpdateOrderStatusInput,
@@ -14,8 +13,6 @@ import type {
 } from './order.schema.js'
 
 // ── Generador de número de orden ───────────────────────────
-// Formato: ORD-0001, ORD-0042, etc.
-// Usa el id de la orden recién creada para garantizar unicidad.
 function formatOrderNumber(id: number): string {
   return `ORD-${String(id).padStart(4, '0')}`
 }
@@ -52,14 +49,16 @@ const orderSelect = {
 } as const
 
 // ── Crear orden ────────────────────────────────────────────
+// IMPORTANTE: NO descuenta stock al crear.
+// El stock se descuenta solo cuando el admin CONFIRMA (PENDING → CONFIRMED).
+// Esto evita reservar stock de pedidos que nunca se confirman.
 export async function createOrder(userId: number, input: CreateOrderInput) {
 
-  // 1. Verificar que el usuario existe
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) throw new NotFoundError('Usuario no encontrado', 'USER_NOT_FOUND')
 
-  // 2. Resolver productos y variantes — re-verificamos precios desde la DB
-  //    El frontend NO es fuente de verdad para precios
+  // Resolver productos y variantes — verificar que existen y tienen stock
+  // No descontamos aún, solo validamos disponibilidad
   const resolvedItems = await Promise.all(
     input.items.map(async (item) => {
       const product = await prisma.product.findUnique({
@@ -68,7 +67,7 @@ export async function createOrder(userId: number, input: CreateOrderInput) {
       })
       if (!product) {
         throw new NotFoundError(
-          `Producto #${item.productId} no encontrado o no disponible`,
+          `Producto #${item.productId} no disponible`,
           'PRODUCT_NOT_FOUND'
         )
       }
@@ -86,7 +85,7 @@ export async function createOrder(userId: number, input: CreateOrderInput) {
             'VARIANT_NOT_FOUND'
           )
         }
-        // Verificar stock suficiente
+        // Solo verificamos que hay stock disponible — no lo descontamos todavía
         if (variant.stock < item.quantity) {
           throw new ConflictError(
             `Stock insuficiente para "${product.name} — ${variant.name}". ` +
@@ -97,7 +96,6 @@ export async function createOrder(userId: number, input: CreateOrderInput) {
         variantName = variant.name
         unitPrice   = variant.price ? Number(variant.price) : unitPrice
       } else {
-        // Producto sin variante — verificar que no tenga variantes obligatorias
         const hasVariants = await prisma.variant.count({
           where: { productId: item.productId },
         })
@@ -121,10 +119,10 @@ export async function createOrder(userId: number, input: CreateOrderInput) {
     })
   )
 
-  // 3. Calcular subtotal
+  // Calcular subtotal
   const subtotal = resolvedItems.reduce((sum, i) => sum + i.subtotal, 0)
 
-  // 4. Validar y aplicar descuento si existe
+  // Validar descuento si existe
   let discountAmount = 0
   if (input.discountCode) {
     const discount = await prisma.discount.findUnique({
@@ -155,17 +153,12 @@ export async function createOrder(userId: number, input: CreateOrderInput) {
 
   const total = Math.max(0, subtotal - discountAmount)
 
-  // 5. Todo en una transacción atómica:
-  //    - Crear la orden + items
-  //    - Descontar stock de variantes
-  //    - Incrementar usedCount del descuento si aplica
-  //    - Asignar orderNumber
+  // Crear la orden en una transacción
+  // Solo incrementamos usedCount del descuento — el stock se toca al confirmar
   const order = await prisma.$transaction(async (tx) => {
-
-    // Crear orden preliminar (sin orderNumber aún — necesitamos el id)
     const created = await tx.order.create({
       data: {
-        orderNumber:   'TEMP', // se actualiza justo abajo
+        orderNumber:   'TEMP',
         userId,
         customerName:  input.customerName,
         customerPhone: input.customerPhone,
@@ -188,24 +181,14 @@ export async function createOrder(userId: number, input: CreateOrderInput) {
       select: { id: true },
     })
 
-    // Asignar orderNumber usando el id generado
     const withNumber = await tx.order.update({
       where:  { id: created.id },
       data:   { orderNumber: formatOrderNumber(created.id) },
       select: orderSelect,
     })
 
-    // Descontar stock de variantes
-    for (const item of resolvedItems) {
-      if (item.variantId) {
-        await tx.variant.update({
-          where: { id: item.variantId },
-          data:  { stock: { decrement: item.quantity } },
-        })
-      }
-    }
-
-    // Incrementar usedCount del descuento
+    // Incrementar usedCount del descuento al crear (para evitar que lo usen
+    // múltiples veces mientras está pendiente)
     if (input.discountCode) {
       await tx.discount.update({
         where: { code: input.discountCode },
@@ -269,12 +252,11 @@ export async function updateOrderStatus(
   })
   if (!order) throw new NotFoundError('Orden no encontrada', 'ORDER_NOT_FOUND')
 
-  // Validar transiciones de estado permitidas
   const allowedTransitions: Record<string, string[]> = {
     PENDING:   ['CONFIRMED', 'REJECTED'],
     CONFIRMED: ['DELIVERED'],
-    REJECTED:  [],           // estado final
-    DELIVERED: [],           // estado final
+    REJECTED:  [],
+    DELIVERED: [],
   }
 
   if (!allowedTransitions[order.status]?.includes(input.status)) {
@@ -286,18 +268,30 @@ export async function updateOrderStatus(
 
   return prisma.$transaction(async (tx) => {
 
-    // Si se rechaza, devolver el stock a las variantes
-    if (input.status === 'REJECTED') {
+    // CONFIRMAR → descontar stock ahora
+    if (input.status === 'CONFIRMED') {
       for (const item of order.items) {
         if (item.variantId) {
+          // Verificar que sigue habiendo stock suficiente
+          const variant = await tx.variant.findUnique({
+            where: { id: item.variantId },
+          })
+          if (!variant || variant.stock < item.quantity) {
+            throw new ConflictError(
+              `Sin stock suficiente para completar este pedido`,
+              'INSUFFICIENT_STOCK'
+            )
+          }
           await tx.variant.update({
             where: { id: item.variantId },
-            data:  { stock: { increment: item.quantity } },
+            data:  { stock: { decrement: item.quantity } },
           })
         }
       }
+    }
 
-      // También revertir el usedCount del descuento si hubo
+    // RECHAZAR → devolver usedCount del descuento (no hay stock que devolver)
+    if (input.status === 'REJECTED') {
       if (order.discountCode) {
         await tx.discount.update({
           where: { code: order.discountCode },
@@ -314,7 +308,7 @@ export async function updateOrderStatus(
   })
 }
 
-// ── Historial de un cliente (para uso futuro) ──────────────
+// ── Historial de un cliente ────────────────────────────────
 export async function getUserOrders(userId: number, filters: OrderFilters) {
   const where = {
     userId,
