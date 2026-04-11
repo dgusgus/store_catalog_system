@@ -26,6 +26,7 @@ export const updateSettingsSchema = z.object({
     .max(300)
     .nullable()
     .optional(),
+  paymentQrUrl: z.url('URL inválida').nullable().optional(),
 }).openapi('UpdateSettingsInput')
  
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>

@@ -30,6 +30,7 @@ model User {
   id            Int            @id @default(autoincrement())
   email         String         @unique
   name          String?
+  phone         String?
   password      String
   role          Role           @default(USER)
   createdAt     DateTime       @default(now())
@@ -141,6 +142,7 @@ model StoreSettings {
   whatsappNumber   String?
   storeName        String?
   storeDescription String?
+  paymentQrUrl     String?
   updatedAt        DateTime @updatedAt
 }
 

@@ -57,6 +57,25 @@ export async function createOrder(userId: number, input: CreateOrderInput) {
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) throw new NotFoundError('Usuario no encontrado', 'USER_NOT_FOUND')
 
+  const existingActive = await prisma.order.findFirst({
+    where: {
+      userId: userId,
+      status: { in: ['PENDING', 'CONFIRMED'] },  // ← ambos estados bloquean
+    },
+    select: { id: true, orderNumber: true, status: true },
+  })
+
+  if (existingActive) {
+    const statusLabel = existingActive.status === 'PENDING'
+      ? 'pendiente de confirmación'
+      : 'confirmado y en proceso'
+
+    throw new ConflictError(
+      `Ya tenés un pedido ${statusLabel} (${existingActive.orderNumber}). ` +
+      `Solo podés tener un pedido activo a la vez.`,
+      'ACTIVE_ORDER_EXISTS'
+    )
+  }
   // Resolver productos y variantes — verificar que existen y tienen stock
   // No descontamos aún, solo validamos disponibilidad
   const resolvedItems = await Promise.all(

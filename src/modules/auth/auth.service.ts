@@ -49,8 +49,8 @@ export async function registerUser(input: RegisterInput) {
   const hashedPassword = await bcrypt.hash(input.password, 10);
 
   const user = await prisma.user.create({
-    data: { email: input.email, name: input.name, password: hashedPassword },
-    select: { id: true, email: true, name: true, role: true, createdAt: true },
+    data: { email: input.email, name: input.name, phone: input.phone, password: hashedPassword },
+    select: { id: true, email: true, name: true, phone: true, role: true, createdAt: true },
   });
 
   const accessToken  = signAccessToken({ sub: user.id, email: user.email, role: user.role });

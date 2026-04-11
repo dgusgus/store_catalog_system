@@ -7,6 +7,7 @@ export const registerSchema = z.object({
   email:    z.email("Email inválido"),
   password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
   name:     z.string().min(1).optional(),
+  phone:    z.string().regex(/^\d{7,15}$/, 'Teléfono inválido').optional(),
 }).openapi("RegisterInput");  // ← nombre en Swagger UI
 
 export const loginSchema = z.object({
