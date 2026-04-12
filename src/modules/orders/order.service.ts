@@ -11,6 +11,7 @@ import type {
   UpdateOrderStatusInput,
   OrderFilters,
 } from './order.schema.js'
+import { ForbiddenError } from '../../config/errors.js'
 
 // ── Generador de número de orden ───────────────────────────
 function formatOrderNumber(id: number): string {
@@ -57,23 +58,19 @@ export async function createOrder(userId: number, input: CreateOrderInput) {
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) throw new NotFoundError('Usuario no encontrado', 'USER_NOT_FOUND')
 
-  const existingActive = await prisma.order.findFirst({
+  const existingPending = await prisma.order.findFirst({
     where: {
       userId: userId,
-      status: { in: ['PENDING', 'CONFIRMED'] },  // ← ambos estados bloquean
+      status: { in: ['PENDING', 'CONFIRMED'] }, // bloquea ambos estados
     },
     select: { id: true, orderNumber: true, status: true },
   })
 
-  if (existingActive) {
-    const statusLabel = existingActive.status === 'PENDING'
-      ? 'pendiente de confirmación'
-      : 'confirmado y en proceso'
-
+  if (existingPending) {
     throw new ConflictError(
-      `Ya tenés un pedido ${statusLabel} (${existingActive.orderNumber}). ` +
-      `Solo podés tener un pedido activo a la vez.`,
-      'ACTIVE_ORDER_EXISTS'
+      `Ya tenés un pedido activo (${existingPending.orderNumber}). ` +
+      `Esperá a recibirlo antes de hacer uno nuevo.`,
+      'PENDING_ORDER_EXISTS'
     )
   }
   // Resolver productos y variantes — verificar que existen y tienen stock
@@ -357,4 +354,32 @@ export async function getUserOrders(userId: number, filters: OrderFilters) {
       hasPrev:    filters.page > 1,
     },
   }
+}
+
+export async function confirmOrderReceived(orderId: number, userId: number) {
+  const order = await prisma.order.findUnique({
+    where:  { id: orderId },
+    select: { id: true, userId: true, status: true, orderNumber: true },
+  })
+ 
+  if (!order) {
+    throw new NotFoundError('Orden no encontrada', 'ORDER_NOT_FOUND')
+  }
+ 
+  if (order.userId !== userId) {
+    throw new ForbiddenError('No podés confirmar este pedido', 'NOT_YOUR_ORDER')
+  }
+ 
+  if (order.status !== 'CONFIRMED') {
+    throw new ConflictError(
+      `El pedido ${order.orderNumber} no está confirmado por el vendedor todavía`,
+      'INVALID_STATUS_TRANSITION'
+    )
+  }
+ 
+  return prisma.order.update({
+    where:  { id: orderId },
+    data:   { status: 'DELIVERED' },
+    select: orderSelect,
+  })
 }

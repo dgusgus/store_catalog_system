@@ -76,4 +76,18 @@ router.patch('/:id/status',
   }
 )
 
+// PATCH /orders/:id/received — cliente confirma que recibió el pedido
+router.patch('/:id/received',
+  verifyToken,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const order = await service.confirmOrderReceived(
+        Number(req.params.id),
+        req.user!.sub
+      )
+      res.json(order)
+    } catch (e) { next(e) }
+  }
+)
+
 export default router
