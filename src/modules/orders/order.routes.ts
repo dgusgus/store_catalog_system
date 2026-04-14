@@ -2,9 +2,9 @@
 
 import { Router } from 'express'
 import type { Request, Response, NextFunction } from 'express'
-import { verifyToken }  from '../rbac/rbac.middleware.js'
-import { requireRole }  from '../rbac/rbac.middleware.js'
-import { validate }     from '../../middlewares/validate.js'
+import { verifyToken } from '../rbac/rbac.middleware.js'
+import { requireRole } from '../rbac/rbac.middleware.js'
+import { validate } from '../../middlewares/validate.js'
 import {
   createOrderSchema,
   updateOrderStatusSchema,
@@ -90,4 +90,15 @@ router.patch('/:id/received',
   }
 )
 
+// DELETE /orders/:id — solo admin, solo pedidos REJECTED
+router.delete('/:id',
+  verifyToken,
+  requireRole('ADMIN'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await service.deleteRejectedOrder(Number(req.params.id))
+      res.status(204).send()
+    } catch (e) { next(e) }
+  }
+)
 export default router

@@ -383,3 +383,21 @@ export async function confirmOrderReceived(orderId: number, userId: number) {
     select: orderSelect,
   })
 }
+
+export async function deleteRejectedOrder(id: number) {
+  const order = await prisma.order.findUnique({
+    where: { id },
+    select: { id: true, status: true, orderNumber: true },
+  })
+  if (!order) {
+    throw new NotFoundError('Orden no encontrada', 'ORDER_NOT_FOUND')
+  }
+  // Solo se pueden eliminar pedidos rechazados
+  if (order.status !== 'REJECTED') {
+    throw new ConflictError(
+      `Solo se pueden eliminar pedidos rechazados.Este pedido está en estado ${ order.status }.`,
+      'CANNOT_DELETE_ORDER'
+    )
+  }
+  await prisma.order.delete({ where: { id } })
+}
